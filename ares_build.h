@@ -220,6 +220,8 @@
 #    define CARES_SIZEOF_LONG           4
 #  elif defined(__x86_64__) || defined(__ppc64__)
 #    define CARES_SIZEOF_LONG           8
+#  else
+#    define CARES_SIZEOF_LONG           sizeof(long)
 #  endif
 #  define CARES_TYPEOF_ARES_SOCKLEN_T socklen_t
 #  define CARES_SIZEOF_ARES_SOCKLEN_T 4

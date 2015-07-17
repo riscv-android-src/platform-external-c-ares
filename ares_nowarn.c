@@ -21,6 +21,10 @@
 #  include <assert.h>
 #endif
 
+#ifdef HAVE_LIMITS_H
+#  include <limits.h>
+#endif
+
 #if defined(__INTEL_COMPILER) && defined(__unix__)
 
 #ifdef HAVE_SYS_SOCKET_H
@@ -51,6 +55,9 @@
 #elif (SIZEOF_INT == 16)
 #  define CARES_MASK_SINT  0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 #  define CARES_MASK_UINT  0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+#elif defined(HAVE_LIMITS_H)
+#  define CARES_MASK_SINT  INT_MAX
+#  define CARES_MASK_UINT  UINT_MAX
 #endif
 
 /*
