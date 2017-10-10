@@ -18,7 +18,10 @@ include $(LOCAL_PATH)/Makefile.inc
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := libcares
-LOCAL_CFLAGS += -DHAVE_CONFIG_H
+LOCAL_CFLAGS += -DHAVE_CONFIG_H \
+    -Wall -Werror \
+    -Wno-unused-function \
+    -Wno-unused-variable
 LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_PATH)
 LOCAL_SRC_FILES := $(CSOURCES)
 include $(BUILD_SHARED_LIBRARY)
