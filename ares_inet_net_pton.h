@@ -1,5 +1,7 @@
+#ifndef HEADER_CARES_INET_NET_PTON_H
+#define HEADER_CARES_INET_NET_PTON_H
 
-/* Copyright 2000 by the Massachusetts Institute of Technology.
+/* Copyright (C) 2005-2013 by Daniel Stenberg et al
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -14,12 +16,10 @@
  * without express or implied warranty.
  */
 
-#include "ares_setup.h"
+#ifdef HAVE_INET_NET_PTON
+#define ares_inet_net_pton(w,x,y,z) inet_net_pton(w,x,y,z)
+#else
+int ares_inet_net_pton(int af, const char *src, void *dst, size_t size);
+#endif
 
-#include "ares.h"
-#include "ares_private.h"
-
-void ares_free_string(void *str)
-{
-  ares_free(str);
-}
+#endif /* HEADER_CARES_INET_NET_PTON_H */

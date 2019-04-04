@@ -1,5 +1,5 @@
 
-/* Copyright 1998 by the Massachusetts Institute of Technology.
+/* Copyright 1998, 2011 by the Massachusetts Institute of Technology.
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -16,9 +16,6 @@
 
 #include "ares_setup.h"
 
-#ifdef HAVE_SYS_SOCKET_H
-#  include <sys/socket.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif
@@ -31,9 +28,12 @@
 #  include <arpa/nameser_compat.h>
 #endif
 
-#include <stdlib.h>
 #include "ares.h"
+#include "ares_nowarn.h"
 #include "ares_private.h" /* for the memdebug */
+
+/* Maximum number of indirections allowed for a name */
+#define MAX_INDIRS 50
 
 static int name_length(const unsigned char *encoded, const unsigned char *abuf,
                        int alen);
@@ -69,7 +69,7 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
   char *q;
   const unsigned char *p;
   union {
-    ssize_t sig;
+    ares_ssize_t sig;
      size_t uns;
   } nlen;
 
@@ -77,7 +77,7 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
   if (nlen.sig < 0)
     return ARES_EBADNAME;
 
-  *s = malloc(nlen.uns + 1);
+  *s = ares_malloc(nlen.uns + 1);
   if (!*s)
     return ARES_ENOMEM;
   q = *s;
@@ -91,9 +91,9 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
     /* indirect root label (like 0xc0 0x0c) is 2 bytes long (stupid, but
        valid) */
     if ((*encoded & INDIR_MASK) == INDIR_MASK)
-      *enclen = 2;
+      *enclen = 2L;
     else
-      *enclen = 1;  /* the caller should move one byte to get past this */
+      *enclen = 1L;  /* the caller should move one byte to get past this */
 
     return ARES_SUCCESS;
   }
@@ -106,7 +106,7 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
         {
           if (!indir)
             {
-              *enclen = p + 2 - encoded;
+              *enclen = aresx_uztosl(p + 2U - encoded);
               indir = 1;
             }
           p = abuf + ((*p & ~INDIR_MASK) << 8 | *(p + 1));
@@ -126,13 +126,13 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
         }
     }
   if (!indir)
-    *enclen = p + 1 - encoded;
+    *enclen = aresx_uztosl(p + 1U - encoded);
 
   /* Nuke the trailing period if we wrote one. */
   if (q > *s)
     *(q - 1) = 0;
   else
-    *q = 0; /* zero terminate */
+    *q = 0; /* zero terminate; LCOV_EXCL_LINE: empty names exit above */
 
   return ARES_SUCCESS;
 }
@@ -143,15 +143,16 @@ int ares_expand_name(const unsigned char *encoded, const unsigned char *abuf,
 static int name_length(const unsigned char *encoded, const unsigned char *abuf,
                        int alen)
 {
-  int n = 0, offset, indir = 0;
+  int n = 0, offset, indir = 0, top;
 
   /* Allow the caller to pass us abuf + alen and have us check for it. */
-  if (encoded == abuf + alen)
+  if (encoded >= abuf + alen)
     return -1;
 
   while (*encoded)
     {
-      if ((*encoded & INDIR_MASK) == INDIR_MASK)
+      top = (*encoded & INDIR_MASK);
+      if (top == INDIR_MASK)
         {
           /* Check the offset and go there. */
           if (encoded + 1 >= abuf + alen)
@@ -164,10 +165,11 @@ static int name_length(const unsigned char *encoded, const unsigned char *abuf,
           /* If we've seen more indirects than the message length,
            * then there's a loop.
            */
-          if (++indir > alen)
+          ++indir;
+          if (indir > alen || indir > MAX_INDIRS)
             return -1;
         }
-      else
+      else if (top == 0x00)
         {
           offset = *encoded;
           if (encoded + offset + 1 >= abuf + alen)
@@ -179,6 +181,13 @@ static int name_length(const unsigned char *encoded, const unsigned char *abuf,
               encoded++;
             }
           n++;
+        }
+      else
+        {
+          /* RFC 1035 4.1.4 says other options (01, 10) for top 2
+           * bits are reserved.
+           */
+          return -1;
         }
     }
 

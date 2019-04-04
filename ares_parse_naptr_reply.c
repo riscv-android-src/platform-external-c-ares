@@ -35,32 +35,31 @@
 #  include <arpa/nameser_compat.h>
 #endif
 
-#ifdef HAVE_STRINGS_H
-#  include <strings.h>
-#endif
-
 #include "ares.h"
 #include "ares_dns.h"
 #include "ares_data.h"
 #include "ares_private.h"
 
-static int
-ares__parse_txt_reply (const unsigned char *abuf, int alen,
-                       int ex, void **txt_out)
+/* AIX portability check */
+#ifndef T_NAPTR
+	#define T_NAPTR 35 /* naming authority pointer */
+#endif
+
+int
+ares_parse_naptr_reply (const unsigned char *abuf, int alen,
+                        struct ares_naptr_reply **naptr_out)
 {
-  size_t substr_len;
   unsigned int qdcount, ancount, i;
-  const unsigned char *aptr;
-  const unsigned char *strptr;
+  const unsigned char *aptr, *vptr;
   int status, rr_type, rr_class, rr_len;
   long len;
   char *hostname = NULL, *rr_name = NULL;
-  struct ares_txt_ext *txt_head = NULL;
-  struct ares_txt_ext *txt_last = NULL;
-  struct ares_txt_ext *txt_curr;
+  struct ares_naptr_reply *naptr_head = NULL;
+  struct ares_naptr_reply *naptr_last = NULL;
+  struct ares_naptr_reply *naptr_curr;
 
-  /* Set *txt_out to NULL for all failure cases. */
-  *txt_out = NULL;
+  /* Set *naptr_out to NULL for all failure cases. */
+  *naptr_out = NULL;
 
   /* Give up if abuf doesn't have room for a header. */
   if (alen < HFIXEDSZ)
@@ -111,70 +110,59 @@ ares__parse_txt_reply (const unsigned char *abuf, int alen,
           status = ARES_EBADRESP;
           break;
         }
-
-      /* Check if we are really looking at a TXT record */
-      if (rr_class == C_IN && rr_type == T_TXT)
+      /* RR must contain at least 7 bytes = 2 x int16 + 3 x name */
+      if (rr_len < 7)
         {
-          /*
-           * There may be multiple substrings in a single TXT record. Each
-           * substring may be up to 255 characters in length, with a
-           * "length byte" indicating the size of the substring payload.
-           * RDATA contains both the length-bytes and payloads of all
-           * substrings contained therein.
-           */
-
-          strptr = aptr;
-          while (strptr < (aptr + rr_len))
-            {
-              substr_len = (unsigned char)*strptr;
-              if (strptr + substr_len + 1 > aptr + rr_len)
-                {
-                  status = ARES_EBADRESP;
-                  break;
-                }
-
-              /* Allocate storage for this TXT answer appending it to the list */
-              txt_curr = ares_malloc_data(ex ? ARES_DATATYPE_TXT_EXT :
-                                               ARES_DATATYPE_TXT_REPLY);
-              if (!txt_curr)
-                {
-                  status = ARES_ENOMEM;
-                  break;
-                }
-              if (txt_last)
-                {
-                  txt_last->next = txt_curr;
-                }
-              else
-                {
-                  txt_head = txt_curr;
-                }
-              txt_last = txt_curr;
-
-              if (ex)
-                txt_curr->record_start = (strptr == aptr);
-              txt_curr->length = substr_len;
-              txt_curr->txt = ares_malloc (substr_len + 1/* Including null byte */);
-              if (txt_curr->txt == NULL)
-                {
-                  status = ARES_ENOMEM;
-                  break;
-                }
-
-              ++strptr;
-              memcpy ((char *) txt_curr->txt, strptr, substr_len);
-
-              /* Make sure we NULL-terminate */
-              txt_curr->txt[substr_len] = 0;
-
-              strptr += substr_len;
-            }
+          status = ARES_EBADRESP;
+          break;
         }
 
-      /* Propagate any failures */
-      if (status != ARES_SUCCESS)
+      /* Check if we are really looking at a NAPTR record */
+      if (rr_class == C_IN && rr_type == T_NAPTR)
         {
-          break;
+          /* parse the NAPTR record itself */
+
+          /* Allocate storage for this NAPTR answer appending it to the list */
+          naptr_curr = ares_malloc_data(ARES_DATATYPE_NAPTR_REPLY);
+          if (!naptr_curr)
+            {
+              status = ARES_ENOMEM;
+              break;
+            }
+          if (naptr_last)
+            {
+              naptr_last->next = naptr_curr;
+            }
+          else
+            {
+              naptr_head = naptr_curr;
+            }
+          naptr_last = naptr_curr;
+
+          vptr = aptr;
+          naptr_curr->order = DNS__16BIT(vptr);
+          vptr += sizeof(unsigned short);
+          naptr_curr->preference = DNS__16BIT(vptr);
+          vptr += sizeof(unsigned short);
+
+          status = ares_expand_string(vptr, abuf, alen, &naptr_curr->flags, &len);
+          if (status != ARES_SUCCESS)
+            break;
+          vptr += len;
+
+          status = ares_expand_string(vptr, abuf, alen, &naptr_curr->service, &len);
+          if (status != ARES_SUCCESS)
+            break;
+          vptr += len;
+
+          status = ares_expand_string(vptr, abuf, alen, &naptr_curr->regexp, &len);
+          if (status != ARES_SUCCESS)
+            break;
+          vptr += len;
+
+          status = ares_expand_name(vptr, abuf, alen, &naptr_curr->replacement, &len);
+          if (status != ARES_SUCCESS)
+            break;
         }
 
       /* Don't lose memory in the next iteration */
@@ -193,28 +181,13 @@ ares__parse_txt_reply (const unsigned char *abuf, int alen,
   /* clean up on error */
   if (status != ARES_SUCCESS)
     {
-      if (txt_head)
-        ares_free_data (txt_head);
+      if (naptr_head)
+        ares_free_data (naptr_head);
       return status;
     }
 
   /* everything looks fine, return the data */
-  *txt_out = txt_head;
+  *naptr_out = naptr_head;
 
   return ARES_SUCCESS;
-}
-
-int
-ares_parse_txt_reply (const unsigned char *abuf, int alen,
-                      struct ares_txt_reply **txt_out)
-{
-  return ares__parse_txt_reply(abuf, alen, 0, (void **) txt_out);
-}
-
-
-int
-ares_parse_txt_reply_ext (const unsigned char *abuf, int alen,
-                          struct ares_txt_ext **txt_out)
-{
-  return ares__parse_txt_reply(abuf, alen, 1, (void **) txt_out);
 }

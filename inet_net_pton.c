@@ -18,9 +18,6 @@
 
 #include "ares_setup.h"
 
-#ifdef HAVE_SYS_SOCKET_H
-#  include <sys/socket.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif
@@ -36,15 +33,10 @@
 #  include <arpa/nameser_compat.h>
 #endif
 
-#include <ctype.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
 #include "ares.h"
 #include "ares_ipv6.h"
 #include "ares_nowarn.h"
-#include "inet_net_pton.h"
+#include "ares_inet_net_pton.h"
 
 
 const struct ares_in6_addr ares_in6addr_any = { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } } };
@@ -159,7 +151,7 @@ inet_net_pton_ipv4(const char *src, unsigned char *dst, size_t size)
 
   /* If nothing was written to the destination, we found no address. */
   if (dst == odst)
-    goto enoent;
+    goto enoent;  /* LCOV_EXCL_LINE: all valid paths above increment dst */
   /* If no CIDR spec was given, infer width from net class. */
   if (bits == -1) {
     if (*odst >= 240)       /* Class E */
@@ -365,8 +357,8 @@ inet_net_pton_ipv6(const char *src, unsigned char *dst, size_t size)
      * Since some memmove()'s erroneously fail to handle
      * overlapping regions, we'll do the shift by hand.
      */
-    const ssize_t n = tp - colonp;
-    ssize_t i;
+    const ares_ssize_t n = tp - colonp;
+    ares_ssize_t i;
 
     if (tp == endp)
       goto enoent;
@@ -448,4 +440,11 @@ int ares_inet_pton(int af, const char *src, void *dst)
     return 0;
   return (result > -1 ? 1 : -1);
 }
+#else /* HAVE_INET_PTON */
+int ares_inet_pton(int af, const char *src, void *dst)
+{
+  /* just relay this to the underlying function */
+  return inet_pton(af, src, dst);
+}
+
 #endif

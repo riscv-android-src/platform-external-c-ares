@@ -1,5 +1,5 @@
 
-/* Copyright 1998 by the Massachusetts Institute of Technology.
+/* Copyright 1998, 2011, 2013 by the Massachusetts Institute of Technology.
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -16,9 +16,6 @@
 
 #include "ares_setup.h"
 
-#ifdef HAVE_SYS_SOCKET_H
-#  include <sys/socket.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif
@@ -37,18 +34,15 @@
 #  include <arpa/nameser_compat.h>
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 #ifdef HAVE_STRINGS_H
 #include <strings.h>
 #endif
 
 #include "ares.h"
-#include "inet_net_pton.h"
+#include "ares_inet_net_pton.h"
 #include "bitncmp.h"
 #include "ares_platform.h"
+#include "ares_nowarn.h"
 #include "ares_private.h"
 
 #ifdef WATT32
@@ -105,18 +99,18 @@ void ares_gethostbyname(ares_channel channel, const char *name, int family,
     return;
 
   /* Allocate and fill in the host query structure. */
-  hquery = malloc(sizeof(struct host_query));
+  hquery = ares_malloc(sizeof(struct host_query));
   if (!hquery)
     {
       callback(arg, ARES_ENOMEM, 0, NULL);
       return;
     }
   hquery->channel = channel;
-  hquery->name = strdup(name);
+  hquery->name = ares_strdup(name);
   hquery->want_family = family;
   hquery->sent_family = -1; /* nothing is sent yet */
   if (!hquery->name) {
-    free(hquery);
+    ares_free(hquery);
     callback(arg, ARES_ENOMEM, 0, NULL);
     return;
   }
@@ -194,11 +188,14 @@ static void host_callback(void *arg, int status, int timeouts,
       else if (hquery->sent_family == AF_INET6)
         {
           status = ares_parse_aaaa_reply(abuf, alen, &host, NULL, NULL);
-          if ((status == ARES_ENODATA || status == ARES_EBADRESP) &&
-               hquery->want_family == AF_UNSPEC) {
+          if ((status == ARES_ENODATA || status == ARES_EBADRESP ||
+               (status == ARES_SUCCESS && host && host->h_addr_list[0] == NULL)) &&
+                hquery->want_family == AF_UNSPEC) {
             /* The query returned something but either there were no AAAA
                records (e.g. just CNAME) or the response was malformed.  Try
                looking up A instead. */
+            if (host)
+              ares_free_hostent(host);
             hquery->sent_family = AF_INET;
             ares_search(hquery->channel, hquery->name, C_IN, T_A,
                         host_callback, hquery);
@@ -230,8 +227,8 @@ static void end_hquery(struct host_query *hquery, int status,
   hquery->callback(hquery->arg, status, hquery->timeouts, host);
   if (host)
     ares_free_hostent(host);
-  free(hquery->name);
-  free(hquery);
+  ares_free(hquery->name);
+  ares_free(hquery);
 }
 
 /* If the name looks like an IP address, fake up a host entry, end the
@@ -290,7 +287,7 @@ static int fake_hostent(const char *name, int family,
       addrs[0] = (char *)&in6;
     }
   /* Duplicate the name, to avoid a constness violation. */
-  hostent.h_name = strdup(name);
+  hostent.h_name = ares_strdup(name);
   if (!hostent.h_name)
     {
       callback(arg, ARES_ENOMEM, 0, NULL);
@@ -300,11 +297,11 @@ static int fake_hostent(const char *name, int family,
   /* Fill in the rest of the host structure and terminate the query. */
   addrs[1] = NULL;
   hostent.h_aliases = aliases;
-  hostent.h_addrtype = family;
+  hostent.h_addrtype = aresx_sitoss(family);
   hostent.h_addr_list = addrs;
   callback(arg, ARES_SUCCESS, 0, &hostent);
 
-  free((char *)(hostent.h_name));
+  ares_free((char *)(hostent.h_name));
   return 1;
 }
 
@@ -466,8 +463,8 @@ static int get_address_index(const struct in_addr *addr,
         }
       else
         {
-          if (!ares_bitncmp(&addr->s_addr, &sortlist[i].addrV4.s_addr,
-                            sortlist[i].mask.bits))
+          if (!ares__bitncmp(&addr->s_addr, &sortlist[i].addrV4.s_addr,
+                             sortlist[i].mask.bits))
             break;
         }
     }
@@ -514,10 +511,8 @@ static int get6_address_index(const struct ares_in6_addr *addr,
     {
       if (sortlist[i].family != AF_INET6)
         continue;
-        if (!ares_bitncmp(addr,
-                          &sortlist[i].addrV6,
-                          sortlist[i].mask.bits))
-          break;
+      if (!ares__bitncmp(addr, &sortlist[i].addrV6, sortlist[i].mask.bits))
+        break;
     }
   return i;
 }

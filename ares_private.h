@@ -26,9 +26,6 @@
 #define WIN32
 #endif
 
-#include <stdio.h>
-#include <sys/types.h>
-
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -40,24 +37,33 @@
 #define HAVE_WRITEV 1
 #endif
 
-#ifdef NETWARE
-#include <time.h>
-#endif
-
 #define DEFAULT_TIMEOUT         5000 /* milliseconds */
 #define DEFAULT_TRIES           4
 #ifndef INADDR_NONE
 #define INADDR_NONE 0xffffffff
 #endif
 
+#ifdef CARES_EXPOSE_STATICS
+/* Make some internal functions visible for testing */
+#define STATIC_TESTABLE
+#else
+#define STATIC_TESTABLE static
+#endif
+
 #if defined(WIN32) && !defined(WATT32)
 
 #define WIN_NS_9X      "System\\CurrentControlSet\\Services\\VxD\\MSTCP"
 #define WIN_NS_NT_KEY  "System\\CurrentControlSet\\Services\\Tcpip\\Parameters"
+#define WIN_DNSCLIENT  "Software\\Policies\\Microsoft\\System\\DNSClient"
 #define NAMESERVER     "NameServer"
 #define DHCPNAMESERVER "DhcpNameServer"
 #define DATABASEPATH   "DatabasePath"
 #define WIN_PATH_HOSTS  "\\hosts"
+#define SEARCHLIST_KEY "SearchList"
+#define PRIMARYDNSSUFFIX_KEY "PrimaryDNSSuffix"
+#define INTERFACES_KEY "Interfaces"
+#define DOMAIN_KEY     "Domain"
+#define DHCPDOMAIN_KEY "DhcpDomain"
 
 #elif defined(WATT32)
 
@@ -93,10 +99,7 @@
 #  define getenv(ptr) ares_getenv(ptr)
 #endif
 
-#ifndef HAVE_STRDUP
-#  include "ares_strdup.h"
-#  define strdup(ptr) ares_strdup(ptr)
-#endif
+#include "ares_strdup.h"
 
 #ifndef HAVE_STRCASECMP
 #  include "ares_strcasecmp.h"
@@ -113,12 +116,21 @@
 #  define writev(s,ptr,cnt) ares_writev(s,ptr,cnt)
 #endif
 
+/********* EDNS defines section ******/
+#define EDNSPACKETSZ   1280  /* Reasonable UDP payload size, as suggested
+                                in RFC2671 */
+#define MAXENDSSZ      4096  /* Maximum (local) limit for edns packet size */
+#define EDNSFIXEDSZ    11    /* Size of EDNS header */
+/********* EDNS defines section ******/
+
 struct ares_addr {
   int family;
   union {
     struct in_addr       addr4;
     struct ares_in6_addr addr6;
   } addr;
+  int udp_port;  /* stored in network order */
+  int tcp_port;  /* stored in network order */
 };
 #define addrV4 addr.addr4
 #define addrV6 addr.addr6
@@ -251,8 +263,8 @@ struct ares_channeldata {
   int tries;
   int ndots;
   int rotate; /* if true, all servers specified are used */
-  int udp_port;
-  int tcp_port;
+  int udp_port; /* stored in network order */
+  int tcp_port; /* stored in network order */
   int socket_send_buffer_size;
   int socket_receive_buffer_size;
   char **domains;
@@ -260,6 +272,7 @@ struct ares_channeldata {
   struct apattern *sortlist;
   int nsort;
   char *lookups;
+  int ednspsz;
 
   /* For binding to local devices and/or IP addresses.  Leave
    * them null/zero for no binding.
@@ -304,20 +317,23 @@ struct ares_channeldata {
 
   ares_sock_create_callback sock_create_cb;
   void *sock_create_cb_data;
+
+  ares_sock_config_callback sock_config_cb;
+  void *sock_config_cb_data;
+
+  const struct ares_socket_functions * sock_funcs;
+  void *sock_func_cb_data;
 };
+
+/* Memory management functions */
+extern void *(*ares_malloc)(size_t size);
+extern void *(*ares_realloc)(void *ptr, size_t size);
+extern void (*ares_free)(void *ptr);
 
 /* return true if now is exactly check time or later */
 int ares__timedout(struct timeval *now,
                    struct timeval *check);
-/* add the specific number of milliseconds to the time in the first argument */
-int ares__timeadd(struct timeval *now,
-                  int millisecs);
-/* return time offset between now and (future) check, in milliseconds */
-long ares__timeoffset(struct timeval *now,
-                      struct timeval *check);
-/* returns ARES_SUCCESS if library has been initialized */
-int ares_library_initialized(void);
-void ares__rc4(rc4_key* key,unsigned char *buffer_ptr, int buffer_len);
+
 void ares__send_query(ares_channel channel, struct query *query,
                       struct timeval *now);
 void ares__close_sockets(ares_channel channel, struct server_state *server);
@@ -335,6 +351,8 @@ void ares__destroy_servers_state(ares_channel channel);
 long ares__tvdiff(struct timeval t1, struct timeval t2);
 #endif
 
+void ares__socket_close(ares_channel, ares_socket_t);
+
 #define ARES_SWAP_BYTE(a,b) \
   { unsigned char swapByte = *(a);  *(a) = *(b);  *(b) = swapByte; }
 
@@ -342,13 +360,14 @@ long ares__tvdiff(struct timeval t1, struct timeval t2);
   do {                                                                  \
     if ((c)->sock_state_cb)                                             \
       (c)->sock_state_cb((c)->sock_state_cb_data, (s), (r), (w));       \
-  } while (0)
+  } WHILE_FALSE
 
 #ifdef CURLDEBUG
 /* This is low-level hard-hacking memory leak tracking and similar. Using the
    libcurl lowlevel code from within library is ugly and only works when
    c-ares is built and linked with a similarly curldebug-enabled libcurl,
    but we do this anyway for convenience. */
+#define HEADER_CURL_SETUP_ONCE_H
 #include "../lib/memdebug.h"
 #endif
 

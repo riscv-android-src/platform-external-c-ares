@@ -1,5 +1,5 @@
 
-/* Copyright (C) 2010-2011 by Daniel Stenberg
+/* Copyright (C) 2010-2013 by Daniel Stenberg
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -22,14 +22,11 @@
 #endif
 
 #ifdef HAVE_LIMITS_H
-#  include <limits.h>
+#include <limits.h>
 #endif
 
 #if defined(__INTEL_COMPILER) && defined(__unix__)
 
-#ifdef HAVE_SYS_SOCKET_H
-#  include <sys/socket.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #  include <netinet/in.h>
 #endif
@@ -43,22 +40,41 @@
 
 #include "ares_nowarn.h"
 
-#if (SIZEOF_INT == 2)
-#  define CARES_MASK_SINT  0x7FFF
-#  define CARES_MASK_UINT  0xFFFF
-#elif (SIZEOF_INT == 4)
-#  define CARES_MASK_SINT  0x7FFFFFFF
-#  define CARES_MASK_UINT  0xFFFFFFFF
-#elif (SIZEOF_INT == 8)
-#  define CARES_MASK_SINT  0x7FFFFFFFFFFFFFFF
-#  define CARES_MASK_UINT  0xFFFFFFFFFFFFFFFF
-#elif (SIZEOF_INT == 16)
-#  define CARES_MASK_SINT  0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-#  define CARES_MASK_UINT  0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-#elif defined(HAVE_LIMITS_H)
-#  define CARES_MASK_SINT  INT_MAX
-#  define CARES_MASK_UINT  UINT_MAX
+#ifndef HAVE_LIMITS_H
+/* systems without <limits.h> we guess have 16 bit shorts, 32bit ints and
+   32bit longs */
+#  define CARES_MASK_SSHORT  0x7FFF
+#  define CARES_MASK_USHORT  0xFFFF
+#  define CARES_MASK_SINT    0x7FFFFFFF
+#  define CARES_MASK_UINT    0xFFFFFFFF
+#  define CARES_MASK_SLONG   0x7FFFFFFFL
+#  define CARES_MASK_ULONG   0xFFFFFFFFUL
+#else
+#  define CARES_MASK_SSHORT  SHRT_MAX
+#  define CARES_MASK_USHORT  USHRT_MAX
+#  define CARES_MASK_SINT    INT_MAX
+#  define CARES_MASK_UINT    UINT_MAX
+#  define CARES_MASK_SLONG   LONG_MAX
+#  define CARES_MASK_ULONG   ULONG_MAX
 #endif
+
+/*
+** unsigned size_t to signed long
+*/
+
+long aresx_uztosl(size_t uznum)
+{
+#ifdef __INTEL_COMPILER
+#  pragma warning(push)
+#  pragma warning(disable:810) /* conversion may lose significant bits */
+#endif
+
+  return (long)(uznum & (size_t) CARES_MASK_SLONG);
+
+#ifdef __INTEL_COMPILER
+#  pragma warning(pop)
+#endif
+}
 
 /*
 ** unsigned size_t to signed int
@@ -72,6 +88,43 @@ int aresx_uztosi(size_t uznum)
 #endif
 
   return (int)(uznum & (size_t) CARES_MASK_SINT);
+
+#ifdef __INTEL_COMPILER
+#  pragma warning(pop)
+#endif
+}
+
+/*
+** unsigned size_t to signed short
+*/
+
+short aresx_uztoss(size_t uznum)
+{
+#ifdef __INTEL_COMPILER
+#  pragma warning(push)
+#  pragma warning(disable:810) /* conversion may lose significant bits */
+#endif
+
+  return (short)(uznum & (size_t) CARES_MASK_SSHORT);
+
+#ifdef __INTEL_COMPILER
+#  pragma warning(pop)
+#endif
+}
+
+/*
+** signed int to signed short
+*/
+
+short aresx_sitoss(int sinum)
+{
+#ifdef __INTEL_COMPILER
+#  pragma warning(push)
+#  pragma warning(disable:810) /* conversion may lose significant bits */
+#endif
+
+  DEBUGASSERT(sinum >= 0);
+  return (short)(sinum & (int) CARES_MASK_SSHORT);
 
 #ifdef __INTEL_COMPILER
 #  pragma warning(pop)
@@ -98,10 +151,10 @@ int aresx_sltosi(long slnum)
 }
 
 /*
-** signed ssize_t to signed int
+** signed ares_ssize_t to signed int
 */
 
-int aresx_sztosi(ssize_t sznum)
+int aresx_sztosi(ares_ssize_t sznum)
 {
 #ifdef __INTEL_COMPILER
 #  pragma warning(push)
@@ -109,7 +162,7 @@ int aresx_sztosi(ssize_t sznum)
 #endif
 
   DEBUGASSERT(sznum >= 0);
-  return (int)(sznum & (ssize_t) CARES_MASK_SINT);
+  return (int)(sznum & (ares_ssize_t) CARES_MASK_SINT);
 
 #ifdef __INTEL_COMPILER
 #  pragma warning(pop)
@@ -117,10 +170,10 @@ int aresx_sztosi(ssize_t sznum)
 }
 
 /*
-** signed ssize_t to unsigned int
+** signed ares_ssize_t to unsigned int
 */
 
-unsigned int aresx_sztoui(ssize_t sznum)
+unsigned int aresx_sztoui(ares_ssize_t sznum)
 {
 #ifdef __INTEL_COMPILER
 #  pragma warning(push)
@@ -128,7 +181,26 @@ unsigned int aresx_sztoui(ssize_t sznum)
 #endif
 
   DEBUGASSERT(sznum >= 0);
-  return (unsigned int)(sznum & (ssize_t) CARES_MASK_UINT);
+  return (unsigned int)(sznum & (ares_ssize_t) CARES_MASK_UINT);
+
+#ifdef __INTEL_COMPILER
+#  pragma warning(pop)
+#endif
+}
+
+/*
+** signed int to unsigned short
+*/
+
+unsigned short aresx_sitous(int sinum)
+{
+#ifdef __INTEL_COMPILER
+#  pragma warning(push)
+#  pragma warning(disable:810) /* conversion may lose significant bits */
+#endif
+
+  DEBUGASSERT(sinum >= 0);
+  return (unsigned short)(sinum & (int) CARES_MASK_USHORT);
 
 #ifdef __INTEL_COMPILER
 #  pragma warning(pop)

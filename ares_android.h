@@ -1,5 +1,4 @@
-
-/* Copyright 2000 by the Massachusetts Institute of Technology.
+/* Copyright (C) 2017 by John Schember <john@nachtimwald.com>
  *
  * Permission to use, copy, modify, and distribute this
  * software and its documentation for any purpose and without
@@ -14,12 +13,15 @@
  * without express or implied warranty.
  */
 
-#include "ares_setup.h"
+#ifndef __ARES_ANDROID_H__
+#define __ARES_ANDROID_H__
 
-#include "ares.h"
-#include "ares_private.h"
+#if defined(ANDROID) || defined(__ANDROID__)
 
-void ares_free_string(void *str)
-{
-  ares_free(str);
-}
+char **ares_get_android_server_list(size_t max_servers, size_t *num_servers);
+char *ares_get_android_search_domains_list(void);
+void ares_library_cleanup_android(void);
+
+#endif
+
+#endif /* __ARES_ANDROID_H__ */
