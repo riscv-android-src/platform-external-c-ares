@@ -82,5 +82,6 @@ android_target_compile_definitions(cares
 android_target_link_libraries(cares windows PRIVATE ws2_32::ws2_32)
 android_target_include_directories(cares linux-x86_64 PRIVATE config_linux)
 android_target_include_directories(cares linux-aarch64 PRIVATE config_linux)
+android_target_include_directories(cares darwin-aarch64 PRIVATE config_darwin)
 android_target_include_directories(cares darwin-x86_64 PRIVATE config_darwin)
 android_target_include_directories(cares windows PRIVATE config_windows)
